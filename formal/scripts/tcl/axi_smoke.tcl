@@ -4,22 +4,33 @@
 #   jg -tcl formal/scripts/tcl/axi_smoke.tcl
 #
 # This script is intentionally small: it analyzes the RTL filelist, analyzes the
-# formal AXI files, elaborates cva5_formal_wrapper, then treats the AXI
-# environment checks as assumptions for a first smoke proof. Filelist generation
-# is managed by formal/scripts/run_jg.sh or make formal-filelist.
+# formal AXI files, elaborates cva5_formal_wrapper, then proves only the AXI
+# smoke properties. Filelist generation is managed by formal/scripts/run_jg.sh
+# or make formal-filelist.
 
 clear -all
 set_engine_mode {B}
 
-set SCRIPT_DIR [file dirname [file normalize [info script]]]
-set CVA5_ROOT [file normalize [file join ${SCRIPT_DIR} ../../..]]
-set FILELIST_PATH [file join ${CVA5_ROOT} formal filelists cva5_rtl.vfile]
-set JG_CVA5_RTL_PATH ${CVA5_ROOT}
+if {[info exists env(CVA5_ROOT)]} {
+    set CVA5_ROOT [file normalize $env(CVA5_ROOT)]
+} elseif {[info exists env(JG_CVA5_RTL_PATH)]} {
+    set CVA5_ROOT [file normalize $env(JG_CVA5_RTL_PATH)]
+} else {
+    set SCRIPT_DIR [file dirname [file normalize [info script]]]
+    set CVA5_ROOT [file normalize [file join $SCRIPT_DIR ../../..]]
+}
+set env(JG_CVA5_RTL_PATH) $CVA5_ROOT
+set JG_CVA5_RTL_PATH $CVA5_ROOT
+set FILELIST_PATH [file join $CVA5_ROOT formal filelists cva5_rtl.vfile]
 
-analyze -sv -f ${FILELIST_PATH}
-analyze -sv [file join ${CVA5_ROOT} formal interfaces axi4_basic_props.sv]
-analyze -sv [file join ${CVA5_ROOT} formal models cva5_fbm.sv]
-analyze -sv [file join ${CVA5_ROOT} formal models cva5_formal_wrapper.sv]
+if {![file exists $FILELIST_PATH]} {
+    error "RTL filelist not found: $FILELIST_PATH. Run make formal-filelist first."
+}
+
+analyze -sv -f $FILELIST_PATH
+analyze -sv [file join $CVA5_ROOT formal interfaces axi4_basic_props.sv]
+analyze -sv [file join $CVA5_ROOT formal models cva5_fbm.sv]
+analyze -sv [file join $CVA5_ROOT formal models cva5_formal_wrapper.sv]
 
 elaborate -top cva5_formal_wrapper \
     -bbox_a 17000 \
@@ -29,9 +40,9 @@ elaborate -top cva5_formal_wrapper \
 clock clk
 reset rst
 
-# For the first AXI bring-up pass, use the legacy AXI property module as an
-# environment model around the core. The labels in axi4_basic_props.sv use the
-# env_* prefix for this purpose.
-assume -from_assert <embedded>::cva5_formal_wrapper.u_cva5_fbm.u_ppb_axi.env_*
+set AXI_PROPS <embedded>::cva5_formal_wrapper.u_cva5_fbm.u_ppb_axi
+set FBM <embedded>::cva5_formal_wrapper.u_cva5_fbm
 
-prove -all
+prove -property ${AXI_PROPS}.master_*
+prove -property ${AXI_PROPS}.cover_*
+prove -property ${FBM}.cover_*
