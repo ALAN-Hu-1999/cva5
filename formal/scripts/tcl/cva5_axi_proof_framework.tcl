@@ -45,13 +45,14 @@ set CORE_ELABORATE_OPTIONS [list \
     -bbox_mul 67 \
     -bbox_m sixinput_pop_count]
 
-# Focused reachability abstracts the data-cache RAM; control and I-cache RAM stay concrete
-# This abstraction is not used by the default safety framework
-if {[info exists env(JG_CVA5_FRAMEWORK_LOAD_STAGE)] &&
-        $env(JG_CVA5_FRAMEWORK_LOAD_STAGE) ne ""} {
+# Focused load/safety stages abstract data-cache RAM; control and I-cache RAM stay concrete
+if {([info exists env(JG_CVA5_FRAMEWORK_LOAD_STAGE)] &&
+         $env(JG_CVA5_FRAMEWORK_LOAD_STAGE) ne "") ||
+        ([info exists env(JG_CVA5_FRAMEWORK_SAFETY_STAGE)] &&
+         $env(JG_CVA5_FRAMEWORK_SAFETY_STAGE) ne "")} {
     set CORE_FOCUSED_DCACHE_DATABANK \
         u_fullcore.u_cva5_core.load_store_unit_block.gen_ls_dcache.gen_small_dcache.data_cache.databank
-    puts "CVA5 core/AXI framework: black-boxing unrelated focused-load data-cache bank $CORE_FOCUSED_DCACHE_DATABANK"
+    puts "CVA5 core/AXI framework: black-boxing unrelated peripheral-load data-cache bank $CORE_FOCUSED_DCACHE_DATABANK"
     lappend CORE_ELABORATE_OPTIONS -bbox_i $CORE_FOCUSED_DCACHE_DATABANK
 }
 
@@ -244,6 +245,9 @@ set LOAD_AXI_AR_HANDSHAKE [core_paths $CORE_TOP {cover_axi_ar_handshake_from_lw}
 set LOAD_AXI_R_RESPONSE [core_paths $CORE_TOP {cover_axi_r_response_for_lw}]
 set LOAD_LSU_COMPLETION [core_paths $CORE_TOP {cover_lsu_load_completion_from_lw}]
 set LOAD_FULL_LIFECYCLE [core_paths $CORE_TOP {cover_full_lw_to_axi_read_lifecycle}]
+set LOAD_WRITEBACK [core_paths $CORE_TOP {cover_full_lw_reaches_writeback}]
+set LOAD_RETIREMENT [core_paths $CORE_TOP {cover_full_lw_reaches_retirement}]
+set LOAD_X2_UPDATE [core_paths $CORE_TOP {cover_full_lw_updates_x2}]
 
 set FULL_CORE_LOAD_STAGE_TASKS {
     LOAD__00_RESET_RELEASE
@@ -276,6 +280,9 @@ set FULL_CORE_LOAD_STAGE_TASKS {
     LOAD__12_AXI_R_RESPONSE
     LOAD__13_LSU_COMPLETION
     LOAD__14_FULL_LIFECYCLE
+    LOAD__15_WRITEBACK
+    LOAD__16_RETIREMENT
+    LOAD__17_X2_UPDATE
 }
 set FULL_CORE_LOAD_STAGE_PROPERTIES [list \
     $LOAD_RESET_RELEASE \
@@ -307,38 +314,11 @@ set FULL_CORE_LOAD_STAGE_PROPERTIES [list \
     $LOAD_AXI_AR_HANDSHAKE \
     $LOAD_AXI_R_RESPONSE \
     $LOAD_LSU_COMPLETION \
-    $LOAD_FULL_LIFECYCLE]
-set FULL_CORE_LOAD_REACHABILITY [concat \
-    $LOAD_RESET_RELEASE \
-    $LOAD_STARTUP_COMPLETE \
-    $LOAD_INSTRUCTION_REQUEST \
-    $LOAD_INSTRUCTION_RETURN \
-    $LOAD_DEBUG_FETCH_REQUEST \
-    $LOAD_DEBUG_ICACHE_LINE_COMPLETE \
-    $LOAD_DEBUG_ICACHE_QUEUED \
-    $LOAD_DEBUG_ICACHE_RESTART \
-    $LOAD_DEBUG_ICACHE_HIT \
-    $LOAD_DEBUG_FETCH_RAW \
-    $LOAD_FETCH_COMPLETE \
-    $LOAD_DEBUG_LUI_DECODE \
-    $LOAD_DEBUG_LUI_ISSUE \
-    $LOAD_DEBUG_LUI_WRITEBACK \
-    $LOAD_DECODE \
-    $LOAD_DEBUG_LW_SOURCE_MAPPING \
-    $LOAD_ISSUE \
-    $LOAD_DEBUG_LW_SOURCE_VALUE \
-    $LOAD_DEBUG_LW_SOURCE_MISMATCH \
-    $LOAD_LSU_COMMAND \
-    $LOAD_DEBUG_DTLB_BUS_MATCH \
-    $LOAD_DEBUG_LSQ_LOAD_VALID \
-    $LOAD_DEBUG_AXI_SUBUNIT_READY \
-    $LOAD_LSU_REQUEST_ACCEPT \
-    $LOAD_AXI_MASTER_ENTRY \
-    $LOAD_AXI_ARVALID \
-    $LOAD_AXI_AR_HANDSHAKE \
-    $LOAD_AXI_R_RESPONSE \
-    $LOAD_LSU_COMPLETION \
-    $LOAD_FULL_LIFECYCLE]
+    $LOAD_FULL_LIFECYCLE \
+    $LOAD_WRITEBACK \
+    $LOAD_RETIREMENT \
+    $LOAD_X2_UPDATE]
+set FULL_CORE_LOAD_REACHABILITY $FULL_CORE_LOAD_STAGE_PROPERTIES
 
 array set FULL_CORE_LOAD_STAGE_MAP {
     reset_release               LOAD__00_RESET_RELEASE
@@ -371,6 +351,9 @@ array set FULL_CORE_LOAD_STAGE_MAP {
     axi_r_response              LOAD__12_AXI_R_RESPONSE
     lsu_completion              LOAD__13_LSU_COMPLETION
     full_lifecycle              LOAD__14_FULL_LIFECYCLE
+    writeback                   LOAD__15_WRITEBACK
+    retirement                  LOAD__16_RETIREMENT
+    x2_update                   LOAD__17_X2_UPDATE
 }
 
 # `prove -from` extends a covered trace for reachability; it cannot prove unreachability
@@ -401,6 +384,9 @@ array set FULL_CORE_LOAD_TRACE_PREDECESSOR {
     LOAD__12_AXI_R_RESPONSE            LOAD__11_AXI_AR_HANDSHAKE
     LOAD__13_LSU_COMPLETION            LOAD__12_AXI_R_RESPONSE
     LOAD__14_FULL_LIFECYCLE            LOAD__13_LSU_COMPLETION
+    LOAD__15_WRITEBACK                 LOAD__14_FULL_LIFECYCLE
+    LOAD__16_RETIREMENT                LOAD__15_WRITEBACK
+    LOAD__17_X2_UPDATE                 LOAD__16_RETIREMENT
 }
 
 proc core_load_single_cover {task_name} {
@@ -505,6 +491,29 @@ set AXI_READ_RESPONSE_GUARANTEES [concat \
     $AXI_READ_RESPONSE_QUICK_GUARANTEES \
     $AXI_READ_RESPONSE_DEEP_GUARANTEES]
 
+set LW_WRITEBACK_HELPERS [core_paths $CORE_TOP {
+    helper_lw_decode_destination
+    helper_lw_writeback_tracker_created
+    helper_lw_writeback_tracker_holds
+    helper_lw_id_to_phys_mapping
+    helper_lw_writeback_tracker_clears
+    helper_lw_rdata_capture
+    helper_lw_rdata_holds_until_writeback
+    helper_lw_retirement_tracker_clears
+}]
+set LW_WRITEBACK_GUARANTEES [core_paths $CORE_TOP {
+    fullcore_lw_rdata_matches_lsu_data
+    fullcore_lw_writeback_destination
+    fullcore_lw_writeback_data
+    fullcore_lw_register_file_write_port
+    fullcore_lw_register_file_update
+    fullcore_lw_architectural_x2_update
+    fullcore_lw_instruction_result
+}]
+set LW_WRITEBACK_SAFETY [concat \
+    $LW_WRITEBACK_HELPERS \
+    $LW_WRITEBACK_GUARANTEES]
+
 set LSU_BRIDGE_SAFETY [concat $LSU_BRIDGE_HELPERS $LSU_BRIDGE_GUARANTEES]
 set AXI_READ_REQUEST_SAFETY [concat $AXI_READ_REQUEST_HELPERS $AXI_READ_REQUEST_GUARANTEES]
 set AXI_READ_RESPONSE_SAFETY [concat \
@@ -525,6 +534,7 @@ set CORE_ACTIVE_PROPERTIES [concat \
     $AXI_READ_REQUEST_SAFETY \
     $AXI_READ_RESPONSE_REACHABILITY \
     $AXI_READ_RESPONSE_SAFETY \
+    $LW_WRITEBACK_SAFETY \
     $END_TO_END_LOAD_REACHABILITY \
     $FULL_CORE_LOAD_REACHABILITY]
 core_require_properties CVA5_CORE_AXI_FRAMEWORK [concat $CORE_ASSUMPTIONS $CORE_ACTIVE_PROPERTIES]
@@ -551,6 +561,7 @@ set CORE_BRANCH_NAMES {
     AXI_READ_REQUEST_SAFETY
     AXI_READ_RESPONSE_REACHABILITY
     AXI_READ_RESPONSE_SAFETY
+    LW_WRITEBACK_SAFETY
     END_TO_END_LOAD_REACHABILITY
     FULL_CORE_LOAD_REACHABILITY
 }
@@ -567,6 +578,7 @@ set CORE_BRANCH_PROPERTIES [list \
     $AXI_READ_REQUEST_SAFETY \
     $AXI_READ_RESPONSE_REACHABILITY \
     $AXI_READ_RESPONSE_SAFETY \
+    $LW_WRITEBACK_SAFETY \
     $END_TO_END_LOAD_REACHABILITY \
     $FULL_CORE_LOAD_REACHABILITY]
 
@@ -607,6 +619,12 @@ proof_structure -create assume_guarantee -from AXI_READ_RESPONSE_SAFETY \
         $AXI_READ_RESPONSE_ENVIRONMENT_CHECK \
         $AXI_READ_RESPONSE_QUICK_GUARANTEES \
         $AXI_READ_RESPONSE_DEEP_GUARANTEES] \
+    -fail_if missing_property {assert}
+
+proof_structure -create assume_guarantee -from LW_WRITEBACK_SAFETY \
+    -op_name LW_WRITEBACK_ASSUME_GUARANTEE \
+    -imp_name {LW_WRITEBACK_HELPERS LW_WRITEBACK_GUARANTEES} \
+    -property [list $LW_WRITEBACK_HELPERS $LW_WRITEBACK_GUARANTEES] \
     -fail_if missing_property {assert}
 
 # Property roles and expected default status.
@@ -657,6 +675,10 @@ core_annotate AXI_READ_RESPONSE_QUICK_GUARANTEES $AXI_READ_RESPONSE_QUICK_GUARAN
     {ROLE=final assertion; SCOPE=embedded read pending/FSM lifecycle and checker outstanding limits; run by default}
 core_annotate AXI_READ_RESPONSE_DEEP_GUARANTEES $AXI_READ_RESPONSE_DEEP_GUARANTEES \
     {ROLE=final assertion; SCOPE=LSU completion ordering and returned data; STATUS=resource-intensive, not run by default}
+core_annotate LW_WRITEBACK_HELPERS $LW_WRITEBACK_HELPERS \
+    {ROLE=white-box helper lemma; SCOPE=anchored LW response/writeback/retirement tracker integrity; no DUT constraint}
+core_annotate LW_WRITEBACK_GUARANTEES $LW_WRITEBACK_GUARANTEES \
+    {ROLE=conditional safety assertion; SCOPE=anchored LW RDATA through LSU, physical writeback, rename map, and architectural x2 state; no eventual-completion claim}
 
 set CORE_DEFAULT_REACHABILITY_TASKS {
     RESET_AND_STARTUP_REACHABILITY
@@ -681,20 +703,52 @@ set CORE_COVERAGE_TASKS {
     AXI_READ_RESPONSE_HELPERS
     AXI_READ_RESPONSE_ENVIRONMENT_CHECK
     AXI_READ_RESPONSE_QUICK_GUARANTEES
+    LW_WRITEBACK_HELPERS
+    LW_WRITEBACK_GUARANTEES
 }
 
-# Focused reruns select existing assertions; proof contexts are unchanged
+# Focused stages reuse properties; load/safety may abstract data-cache RAM
 array set CORE_SAFETY_STAGE_TASK {
     load_accept_enters_requesting_read LSU_BRIDGE_HELPERS
     requesting_read_drives_arvalid     AXI_READ_REQUEST_HELPERS
     embedded_arvalid_hold              AXI_READ_REQUEST_GUARANTEES
     embedded_araddr_stability          AXI_READ_REQUEST_GUARANTEES
+    lw_tracker_created                 LW_WRITEBACK_HELPERS
+    lw_decode_destination              LW_WRITEBACK_HELPERS
+    lw_tracker_holds                   LW_WRITEBACK_HELPERS
+    lw_id_to_phys_mapping              LW_WRITEBACK_HELPERS
+    lw_tracker_clears                  LW_WRITEBACK_HELPERS
+    lw_rdata_capture                   LW_WRITEBACK_HELPERS
+    lw_rdata_holds                     LW_WRITEBACK_HELPERS
+    lw_retirement_tracker_clears       LW_WRITEBACK_HELPERS
+    lw_rdata_matches_lsu_data          LW_WRITEBACK_GUARANTEES
+    lw_writeback_destination           LW_WRITEBACK_GUARANTEES
+    lw_writeback_data                  LW_WRITEBACK_GUARANTEES
+    lw_register_file_write_port        LW_WRITEBACK_GUARANTEES
+    lw_register_file_update            LW_WRITEBACK_GUARANTEES
+    lw_architectural_x2_update         LW_WRITEBACK_GUARANTEES
+    lw_instruction_result              LW_WRITEBACK_GUARANTEES
 }
 array set CORE_SAFETY_STAGE_PROPERTY {
     load_accept_enters_requesting_read cva5_axi_proof_framework_wrapper.helper_load_accept_enters_requesting_read
     requesting_read_drives_arvalid     cva5_axi_proof_framework_wrapper.helper_requesting_read_drives_arvalid
     embedded_arvalid_hold              cva5_axi_proof_framework_wrapper.fullcore_embedded_arvalid_hold
     embedded_araddr_stability          cva5_axi_proof_framework_wrapper.fullcore_embedded_araddr_stability
+    lw_tracker_created                 cva5_axi_proof_framework_wrapper.helper_lw_writeback_tracker_created
+    lw_decode_destination              cva5_axi_proof_framework_wrapper.helper_lw_decode_destination
+    lw_tracker_holds                   cva5_axi_proof_framework_wrapper.helper_lw_writeback_tracker_holds
+    lw_id_to_phys_mapping              cva5_axi_proof_framework_wrapper.helper_lw_id_to_phys_mapping
+    lw_tracker_clears                  cva5_axi_proof_framework_wrapper.helper_lw_writeback_tracker_clears
+    lw_rdata_capture                   cva5_axi_proof_framework_wrapper.helper_lw_rdata_capture
+    lw_rdata_holds                     cva5_axi_proof_framework_wrapper.helper_lw_rdata_holds_until_writeback
+    lw_retirement_tracker_clears       cva5_axi_proof_framework_wrapper.helper_lw_retirement_tracker_clears
+    lw_rdata_matches_lsu_data          cva5_axi_proof_framework_wrapper.fullcore_lw_rdata_matches_lsu_data
+    lw_writeback_destination           cva5_axi_proof_framework_wrapper.fullcore_lw_writeback_destination
+    lw_writeback_data                  cva5_axi_proof_framework_wrapper.fullcore_lw_writeback_data
+    lw_register_file_write_port        cva5_axi_proof_framework_wrapper.fullcore_lw_register_file_write_port
+    lw_register_file_update            cva5_axi_proof_framework_wrapper.fullcore_lw_register_file_update
+    lw_architectural_x2_update         cva5_axi_proof_framework_wrapper.fullcore_lw_architectural_x2_update
+    lw_instruction_result              cva5_axi_proof_framework_wrapper.fullcore_lw_instruction_result
 }
 
 puts "CVA5 core/AXI framework named tasks:"
@@ -755,10 +809,44 @@ if {$CORE_LOAD_STAGE ne "" &&
     set_prove_orchestration $env(JG_CVA5_LOAD_ORCHESTRATION)
 }
 
+if {$CORE_SAFETY_STAGE ne "" &&
+        [info exists env(JG_CVA5_SAFETY_MAX_JOBS)] &&
+        $env(JG_CVA5_SAFETY_MAX_JOBS) ne ""} {
+    puts "CVA5 core/AXI framework: limiting focused safety ProofGrid scheduling to $env(JG_CVA5_SAFETY_MAX_JOBS) local jobs"
+    set_proofgrid_max_jobs $env(JG_CVA5_SAFETY_MAX_JOBS)
+}
+
+if {$CORE_SAFETY_STAGE ne "" &&
+        [info exists env(JG_CVA5_SAFETY_ORCHESTRATION)] &&
+        $env(JG_CVA5_SAFETY_ORCHESTRATION) ne ""} {
+    puts "CVA5 core/AXI framework: focused safety orchestration $env(JG_CVA5_SAFETY_ORCHESTRATION)"
+    set_prove_orchestration $env(JG_CVA5_SAFETY_ORCHESTRATION)
+}
+
 if {$CORE_RUN_PROOFS eq "1"} {
     if {$CORE_SAFETY_STAGE ne ""} {
         set safety_task $CORE_SAFETY_STAGE_TASK($CORE_SAFETY_STAGE)
         set safety_property ${safety_task}::$CORE_SAFETY_STAGE_PROPERTY($CORE_SAFETY_STAGE)
+
+        if {[info exists env(JG_CVA5_USE_PROVEN_LW_LEMMAS)] &&
+                $env(JG_CVA5_USE_PROVEN_LW_LEMMAS) eq "1" &&
+                $safety_task eq "LW_WRITEBACK_GUARANTEES"} {
+            task -set $safety_task
+            foreach source_lemma {
+                helper_lw_decode_destination
+                helper_lw_writeback_tracker_created
+                helper_lw_writeback_tracker_holds
+                helper_lw_writeback_tracker_clears
+                helper_lw_rdata_capture
+                helper_lw_rdata_holds_until_writeback
+                helper_lw_retirement_tracker_clears
+            } {
+                set source_assert <embedded>::${CORE_TOP}.${source_lemma}
+                set cut_property [assume -from_assert $source_assert]
+                puts "CVA5 core/AXI framework: assume-guarantee cut $cut_property from independently proven $source_assert"
+            }
+        }
+
         puts "CVA5 core/AXI framework: proving focused embedded safety stage $CORE_SAFETY_STAGE"
         puts "CVA5 core/AXI framework: selected property $safety_property"
         prove -property $safety_property
@@ -777,7 +865,7 @@ if {$CORE_RUN_PROOFS eq "1"} {
                 puts "CVA5 core/AXI framework: covering standalone load stage $standalone_task"
                 prove -task $standalone_task
             }
-            set selected_load_tasks {LOAD__14_FULL_LIFECYCLE}
+            set selected_load_tasks {LOAD__17_X2_UPDATE}
         } else {
             set selected_load_tasks [list $FULL_CORE_LOAD_STAGE_MAP($CORE_LOAD_STAGE)]
         }

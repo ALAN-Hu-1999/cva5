@@ -53,7 +53,11 @@ make formal-cva5-reachability-read-backpressure GUI=0 TIME_LIMIT=2m
 - `FRAMEWORK_RUN_PROOFS=0`, `CVA5_FRAMEWORK_RUN_PROOFS=0`: build framework tasks without running proof roots.
 - `CVA5_FRAMEWORK_RUN_REACHABILITY=1`: enable broad reset, startup, and fetch covers; focused stages are the normal flow.
 - `CVA5_FRAMEWORK_RUN_DEEP_RESPONSE=1`: enable resource-intensive LSU completion and data assertions.
-- `CVA5_LOAD_ORCHESTRATION=off`: default load-stage resource control; `ENGINE_MODE` is independent.
+- `CVA5_LOAD_MAX_JOBS=2`, `CVA5_LOAD_ORCHESTRATION=off`: focused load scheduling; load reachability chains covers.
+- `CVA5_SAFETY_MAX_JOBS=2`, `CVA5_SAFETY_ORCHESTRATION=off`: focused safety scheduling; safety mode proves a selected assertion. These controls are separate because the execution models differ.
+- `CVA5_LOAD_DUMP_TRACE=0`: set to `1` to export the reached load trace as VCD.
+- `CVA5_USE_PROVEN_LW_LEMMAS=1`: enables proven-helper reuse for focused `LW_WRITEBACK_GUARANTEES` stages; set to `0` to run those selected guarantee proofs without the imported helper cuts.
+- `ENGINE_MODE` is independent of load and safety scheduling.
 
 ## Layout
 
