@@ -93,8 +93,7 @@ module axi4_basic_props(
         arvalid_wait |=> axi_if.arvalid);
 
     master_araddr_stable_until_ready: assert property(@(posedge clk) disable iff (rst)
-        // ARSIZE and ARCACHE are pending design-owner review because the
-        // current RTL does not drive them.
+        // Unit axi_master omits ARSIZE/ARCACHE; axi_adapter drives them at core level.
         arvalid_wait |=> $stable({axi_if.araddr, axi_if.arlen,
                                   axi_if.arburst, axi_if.arlock, axi_if.arid}));
 
@@ -182,8 +181,7 @@ module axi4_basic_props(
                                   axi_if.awburst, axi_if.awcache,
                                   axi_if.awlock, axi_if.awid}));
 `else
-        // AWSIZE and AWCACHE are pending design-owner review because the
-        // current RTL does not drive them.
+        // Unit axi_master omits AWSIZE/AWCACHE; axi_adapter drives them at core level.
         awvalid_wait |=> $stable({axi_if.awaddr, axi_if.awlen,
                                   axi_if.awburst, axi_if.awlock, axi_if.awid}));
 `endif
@@ -195,8 +193,7 @@ module axi4_basic_props(
 `ifdef AXI_WRITE_INCLUDE_UNDRIVEN_FIELD_CHECKS
         wvalid_wait |=> $stable({axi_if.wdata, axi_if.wstrb, axi_if.wlast}));
 `else
-        // WLAST is pending design-owner review because the current RTL does
-        // not drive it.
+        // Unit axi_master omits WLAST; axi_adapter drives it at core level.
         wvalid_wait |=> $stable({axi_if.wdata, axi_if.wstrb}));
 `endif
 

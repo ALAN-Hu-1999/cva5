@@ -19,6 +19,10 @@ module axi_master_read_harness
     input logic [5:0]  axi_rid
 );
 
+    /////////////////////////////////////////////////////////////////
+    // INTERFACES
+    /////////////////////////////////////////////////////////////////
+
     axi_interface axi_if();
     amo_interface amo_if();
     memory_sub_unit_interface ls_if();
@@ -58,14 +62,38 @@ module axi_master_read_harness
     assign axi_if.bresp = '0;
     assign axi_if.bid = '0;
 
+    /////////////////////////////////////////////////////////////////
+    // DUT
+    /////////////////////////////////////////////////////////////////
+
+    axi_master u_dut (
+        .clk,
+        .rst,
+        .write_outstanding,
+        .m_axi         (axi_if),
+        .amo           (1'b0),
+        .amo_type      (AMO_ADD_FN5),
+        .amo_unit      (amo_if),
+        .ls            (ls_if)
+    );
+
+    axi4_basic_props u_axi_props (
+        .clk,
+        .rst    (rst | !formal_active),
+        .axi_if (axi_if)
+    );
+
+    /////////////////////////////////////////////////////////////////
+    // FORMAL HELPER SIGNALS
+    /////////////////////////////////////////////////////////////////
+
     always_ff @(posedge clk) begin
         if (rst)
-            formal_active <= 1'b0;
+            formal_active <= 1'b0;  // disable formal during reset
         else
             formal_active <= 1'b1;
     end
 
-    // One-cycle request, ARREADY bound for cover only
     assign ar_accepted = axi_if.arvalid && axi_if.arready;
     assign r_accepted = axi_if.rvalid && axi_if.rready;
     assign read_completion = ls_if.data_valid && ls_if.ready;
@@ -94,6 +122,10 @@ module axi_master_read_harness
         end
     end
 
+    /////////////////////////////////////////////////////////////////
+    // ENVIRONMENT ASSUMPTIONS
+    /////////////////////////////////////////////////////////////////
+    // One-cycle request, ARREADY bound for cover only
     env_legal_read_request: assume property (@(posedge clk) disable iff (rst)
         ls_new_request |-> ls_if.ready);
 
@@ -103,8 +135,7 @@ module axi_master_read_harness
     env_quiet_during_warmup: assume property (@(posedge clk) disable iff (rst)
         !formal_active |-> !ls_new_request && !axi_rvalid);
 
-    // The DUT ties RREADY high, so an early RVALID cannot be rejected by this
-    // master. Treat impossible read responses as AXI slave environment errors.
+    // RREADY is tied high; assume no early RVALID.
     env_no_early_read_response: assume property (@(posedge clk) disable iff (rst | !formal_active)
         axi_if.rvalid |-> read_pending);
 
@@ -118,27 +149,16 @@ module axi_master_read_harness
         end
     endgenerate
 
-    axi_master u_dut (
-        .clk,
-        .rst,
-        .write_outstanding,
-        .m_axi         (axi_if),
-        .amo           (1'b0),
-        .amo_type      (AMO_ADD_FN5),
-        .amo_unit      (amo_if),
-        .ls            (ls_if)
-    );
 
-    axi4_basic_props u_axi_props (
-        .clk,
-        .rst    (rst | !formal_active),
-        .axi_if (axi_if)
-    );
-
+    /////////////////////////////////////////////////////////////////
+    // DUT PROPERTIES ASSERTIONS
+    /////////////////////////////////////////////////////////////////
+    // DUT state helpers
     assign dut_in_requesting_read = u_dut.current_state == u_dut.REQUESTING_READ;
     assign dut_in_waiting_read = u_dut.current_state == u_dut.WAITING_READ;
     assign accept_new_lsu_request = ls_new_request && ls_if.ready;
 
+    // Request sequencing
     dut_read_request_enters_requesting_read: assert property (@(posedge clk) disable iff (rst | !formal_active)
         ls_new_request && ls_if.ready |=> dut_in_requesting_read);
 
@@ -148,25 +168,17 @@ module axi_master_read_harness
     dut_requesting_read_exits_on_arready: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_requesting_read && axi_if.arready |=> dut_in_waiting_read);
 
+    // ARVALID lemmas
     dut_requesting_read_drives_arvalid: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_requesting_read |-> axi_if.arvalid);
-
-    dut_requesting_read_holds_arvalid: assert property (@(posedge clk) disable iff (rst | !formal_active)
-        dut_in_requesting_read && !axi_if.arready |=> axi_if.arvalid);
 
     dut_arvalid_backpressure_implies_requesting_read: assert property (@(posedge clk) disable iff (rst | !formal_active)
         axi_if.arvalid && !axi_if.arready |-> dut_in_requesting_read);
 
-`ifdef AXI_READ_USE_PROVEN_LEMMAS
-    // Assume-guarantee cuts. These lemmas must be proven independently under
-    // the same read-only harness assumptions before enabling this mode.
-    cut_arvalid_backpressure_implies_requesting_read: assume property (@(posedge clk) disable iff (rst | !formal_active)
-        axi_if.arvalid && !axi_if.arready |-> dut_in_requesting_read);
-
-    cut_requesting_read_holds_arvalid: assume property (@(posedge clk) disable iff (rst | !formal_active)
+    dut_requesting_read_holds_arvalid: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_requesting_read && !axi_if.arready |=> axi_if.arvalid);
-`endif
 
+    // AR stability helpers
     dut_requesting_read_holds_araddr: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_requesting_read && !axi_if.arready
         |=> $stable({axi_if.araddr, axi_if.arlen, axi_if.arburst,
@@ -202,20 +214,24 @@ module axi_master_read_harness
     dut_requesting_read_holds_arid: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_requesting_read && !axi_if.arready |=> $stable(axi_if.arid));
 
+    // ARVALID guarantees
     dut_read_request_drives_arvalid: assert property (@(posedge clk) disable iff (rst | !formal_active)
         ls_new_request && ls_if.ready |=> axi_if.arvalid);
 
     dut_arvalid_holds_until_ready: assert property (@(posedge clk) disable iff (rst | !formal_active)
         axi_if.arvalid && !axi_if.arready |=> axi_if.arvalid);
 
+    // ARADDR guarantee
     dut_araddr_stable_until_ready: assert property (@(posedge clk) disable iff (rst | !formal_active)
         axi_if.arvalid && !axi_if.arready
         |=> $stable({axi_if.araddr, axi_if.arlen, axi_if.arburst,
                      axi_if.arlock, axi_if.arid}));
 
+    // Mode isolation
     dut_read_only_no_write_valid: assert property (@(posedge clk) disable iff (rst | !formal_active)
         !axi_if.awvalid && !axi_if.wvalid);
 
+    // Read lifecycle
     dut_ar_accept_creates_pending_read: assert property (@(posedge clk) disable iff (rst | !formal_active)
         ar_accepted |=> read_pending);
 
@@ -234,6 +250,7 @@ module axi_master_read_harness
     dut_r_response_returns_to_ready: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_waiting_read && r_accepted |=> u_dut.current_state == u_dut.READY);
 
+    // LSU completion
     dut_r_response_completes_lsu: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_waiting_read && r_accepted |=> read_completion);
 
@@ -249,6 +266,11 @@ module axi_master_read_harness
     dut_rvalid_drives_ls_ready: assert property (@(posedge clk) disable iff (rst | !formal_active)
         dut_in_waiting_read && r_accepted |=> ls_if.ready);
 
+    /////////////////////////////////////////////////////////////////
+    // COVER
+    /////////////////////////////////////////////////////////////////
+
+    // Request / backpressure
     cover_read_request: cover property (@(posedge clk) disable iff (rst | !formal_active)
         ls_new_request);
 
@@ -257,6 +279,43 @@ module axi_master_read_harness
         axi_if.arvalid && !axi_if.arready ##[1:4]
         axi_if.arvalid && axi_if.arready);
 
+    // AR timing
+    cover_ar_ready_already_high: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        axi_if.arready && !axi_if.arvalid ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_ready_same_cycle_as_valid: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        !axi_if.arvalid && !axi_if.arready ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_wait_1_cycle: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        (axi_if.arvalid && !axi_if.arready)[*1] ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_wait_2_cycles: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        (axi_if.arvalid && !axi_if.arready)[*2] ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_wait_3_cycles: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        (axi_if.arvalid && !axi_if.arready)[*3] ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_wait_16_cycles: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        (axi_if.arvalid && !axi_if.arready)[*16] ##1
+        axi_if.arvalid && axi_if.arready);
+
+    cover_ar_wait_19_cycles: cover property (@(posedge clk) disable iff (rst | !formal_active)
+        ls_new_request && ls_if.ready ##[1:8]
+        (axi_if.arvalid && !axi_if.arready)[*19] ##1
+        axi_if.arvalid && axi_if.arready);
+
+    // Read lifecycle
     cover_read_response: cover property (@(posedge clk) disable iff (rst | !formal_active)
         ar_accepted ##[1:8] r_accepted);
 
@@ -285,29 +344,6 @@ module axi_master_read_formal_wrapper (
 
     axi_master_read_harness #(
         .BOUND_ARREADY_FOR_COVER(1'b0)
-    ) u_harness (
-        .*
-    );
-
-endmodule
-
-module axi_master_read_cover_wrapper (
-    input logic clk,
-    input logic rst,
-
-    input logic        ls_new_request,
-    input logic [31:0] ls_addr,
-
-    input logic        axi_arready,
-    input logic        axi_rvalid,
-    input logic [31:0] axi_rdata,
-    input logic [1:0]  axi_rresp,
-    input logic        axi_rlast,
-    input logic [5:0]  axi_rid
-);
-
-    axi_master_read_harness #(
-        .BOUND_ARREADY_FOR_COVER(1'b1)
     ) u_harness (
         .*
     );

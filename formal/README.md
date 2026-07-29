@@ -1,52 +1,69 @@
-Formal Verification
-===================
+# CVA5 formal verification
 
-This directory contains the JasperGold bring-up flow for CVA5.
+JasperGold flows for unit-level AXI master proofs and full-core reachability.
 
-Quick start:
+Run from `formal/`:
 
 ```sh
-make formal-axi-smoke
-make formal-elab
-make formal-axi-smoke GUI=1
-make formal-axi-master-smoke GUI=0
-make formal-axi-master-property PROPERTY=master_arvalid_held_until_ready GUI=0
-make formal-axi-master-read-smoke GUI=0
-make formal-axi-master-read-property PROPERTY=master_arvalid_held_until_ready GUI=0
-make formal-axi-checker-property PROPERTY=helper_read_count_increment GUI=0
+make formal-filelist
+make formal-elab GUI=0 ENGINE_MODE=auto
+
+make formal-axi-master-proof-framework GUI=1 ENGINE_MODE=auto
+make formal-axi-master-read-closure GUI=0 ENGINE_MODE=auto
+make formal-axi-master-write-closure GUI=0 ENGINE_MODE=auto
+make formal-axi-master-combined-closure GUI=0 ENGINE_MODE=auto
+
+make formal-cva5-axi-proof-framework GUI=1 TIME_LIMIT=5m ENGINE_MODE=auto
+make formal-cva5-axi-load-list-stages
+make formal-cva5-axi-load-stage STAGE=instruction_return GUI=0 TIME_LIMIT=5m ENGINE_MODE=auto
+make formal-cva5-axi-load-reachability GUI=1 TIME_LIMIT=5m ENGINE_MODE=auto
+make formal-cva5-reachability-stage STAGE=instruction_fetch GUI=0 TIME_LIMIT=2m ENGINE_MODE=auto
+make formal-cva5-reachability GUI=0 TIME_LIMIT=2m
+make formal-cva5-reachability-read-backpressure GUI=0 TIME_LIMIT=2m
 ```
 
-The same targets can be run from inside this directory without `-C formal`.
+## Targets
 
-Targets:
+- `formal-filelist`, `formal-elab`: generate the filelist; analyze and elaborate the full-core wrapper.
+- `formal-axi-master-proof-framework`: unit-level Jasper proof structure and checker coverage.
+- `formal-axi-master-read-closure`, `formal-axi-master-write-closure`, `formal-axi-master-combined-closure`: unit smoke, safety, and checker proofs.
+- `formal-cva5-axi-proof-framework`: full-core assumptions, reachability, AXI safety, and lifecycle tasks.
+- `formal-cva5-axi-load-stage STAGE=<name>`: run one anchored LW stage.
+- `formal-cva5-axi-load-reachability`: run anchored LW stages in order.
+- `formal-cva5-reachability-stage STAGE=<name>`: run one full-core reachability cover.
+- `formal-cva5-reachability`: run reset, startup, instruction-memory, and AXI read stages.
+- `formal-cva5-reachability-write`: optional AXI write reachability.
+- `formal-cva5-reachability-read-backpressure`, `formal-cva5-reachability-write-backpressure`: optional timing stages.
+- `formal-list`, `formal-clean`: list Tcl targets; remove generated `runs/`.
 
-- `make formal-filelist` regenerates `formal/filelists/cva5_rtl.vfile` from `tools/compile_order`.
-- `make formal-elab` runs Jasper analysis/elaboration only.
-- `make formal-axi-smoke` runs AXI and startup reachability covers.
-- `make formal-axi-property PROPERTY=<label>` proves one AXI assertion or an explicit wildcard group.
-- `make formal-axi-master-smoke` checks AXI master reachability without elaborating the full core.
-- `make formal-axi-master-property PROPERTY=<label>` proves one AXI assertion against the unit-level master harness.
-- `make formal-axi-master-read-smoke` checks read-address reachability in the read-only unit harness.
-- `make formal-axi-master-read-property PROPERTY=<label>` proves one read-address assertion in the read-only unit harness.
-- `make formal-axi-checker-property PROPERTY=helper_<label>` validates checker bookkeeping with abstract AXI handshakes.
+## Proof boundary
 
-Focused property targets default to `TIME_LIMIT=5m`; override it explicitly for deeper proofs.
-- `make formal-list` lists available Tcl targets.
-- `make formal-clean` removes generated run directories.
+- Unit harnesses prove read-only, write-only, and combined `axi_master` behavior.
+- Full-core proofs use the embedded AXI interface and an anchored LW path.
+- Full-core reachability covers the load path; it is not a whole-core coverage metric.
+- AXI checker limits assume one outstanding transaction and legal response ordering.
+- Ready bounds apply only to covers; safety proofs leave ready unbounded.
+- Undriven AXI field checks are opt-in with `INCLUDE_UNDRIVEN_FIELDS=1`.
 
-Layout:
+## Options
 
-- `interfaces/` contains formal property modules.
-- `models/` contains formal wrappers and environment models.
-- `scripts/tcl/` contains Jasper Tcl targets.
-- `scripts/run_jg.sh` creates run directories and launches Jasper.
-- `filelists/` contains generated analyzer filelists.
-- `runs/` contains generated logs and projects and is not tracked.
+- `GUI=0`: batch mode.
+- `ENGINE_MODE=auto`: default engine mode for unit and full-core flows.
+- `TIME_LIMIT=5m`: focused proof limit; override for staged runs.
+- `FRAMEWORK_RUN_PROOFS=0`, `CVA5_FRAMEWORK_RUN_PROOFS=0`: build framework tasks without running proof roots.
+- `CVA5_FRAMEWORK_RUN_REACHABILITY=1`: enable broad reset, startup, and fetch covers; focused stages are the normal flow.
+- `CVA5_FRAMEWORK_RUN_DEEP_RESPONSE=1`: enable resource-intensive LSU completion and data assertions.
+- `CVA5_LOAD_ORCHESTRATION=off`: default load-stage resource control; `ENGINE_MODE` is independent.
 
-Environment:
+## Layout
 
-Ensure `jg` is available in `PATH` before running the Make targets.
+- `interfaces/`: reusable formal properties.
+- `models/full_core/`: CVA5 wrappers, FBM, and fetch-local harness.
+- `models/unit_axi_master/`: read, write, combined, and proof-framework harnesses.
+- `models/legacy/`: legacy AXI master and checker harnesses.
+- `scripts/tcl/`: Jasper targets.
+- `scripts/run_jg.sh`: run-directory setup and Jasper launcher.
+- `filelists/`, `runs/`: generated filelists and run data.
 
-Machine-specific setup should stay local. If needed, copy
-`set_env.example.sh` to `set_env.sh`, edit it for your site, and source it
-before running `make`. The local `set_env.sh` file is ignored by git.
+JasperGold (`jg`) must be on `PATH`. Site-specific environment setup may go in
+`set_env.sh`; it is not part of the default flow.

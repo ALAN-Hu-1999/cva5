@@ -24,5 +24,14 @@ if {[string match "dut_*" $env(JG_PROPERTY)]
     set PROPERTY_PATH ${AXI_MASTER_READ_PROPS}.$env(JG_PROPERTY)
 }
 
+if {[info exists env(AXI_READ_USE_PROVEN_LEMMAS)] &&
+        $env(AXI_READ_USE_PROVEN_LEMMAS) eq "1" &&
+        $env(JG_PROPERTY) in {
+            dut_arvalid_backpressure_implies_requesting_read
+            dut_requesting_read_holds_arvalid
+        }} {
+    error "Source lemma $env(JG_PROPERTY) is assumed in cut mode. Prove it independently with USE_PROVEN_LEMMAS=0."
+}
+
 puts "Proving read-only AXI master property: $PROPERTY_PATH"
 prove -property $PROPERTY_PATH
