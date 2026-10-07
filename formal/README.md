@@ -18,8 +18,7 @@ make formal-cva5-axi-load-list-stages
 make formal-cva5-axi-load-stage STAGE=instruction_return GUI=0 TIME_LIMIT=5m ENGINE_MODE=auto
 make formal-cva5-axi-load-reachability GUI=1 TIME_LIMIT=5m ENGINE_MODE=auto
 make formal-cva5-reachability-stage STAGE=instruction_fetch GUI=0 TIME_LIMIT=2m ENGINE_MODE=auto
-make formal-cva5-reachability GUI=0 TIME_LIMIT=2m
-make formal-cva5-reachability-read-backpressure GUI=0 TIME_LIMIT=2m
+make formal-cva5-reachability-stage STAGE=axi_ar_wait_1 GUI=0 TIME_LIMIT=2m
 ```
 
 ## Targets
@@ -30,10 +29,7 @@ make formal-cva5-reachability-read-backpressure GUI=0 TIME_LIMIT=2m
 - `formal-cva5-axi-proof-framework`: full-core assumptions, reachability, AXI safety, and lifecycle tasks.
 - `formal-cva5-axi-load-stage STAGE=<name>`: run one anchored LW stage.
 - `formal-cva5-axi-load-reachability`: run anchored LW stages in order.
-- `formal-cva5-reachability-stage STAGE=<name>`: run one full-core reachability cover.
-- `formal-cva5-reachability`: run reset, startup, instruction-memory, and AXI read stages.
-- `formal-cva5-reachability-write`: optional AXI write reachability.
-- `formal-cva5-reachability-read-backpressure`, `formal-cva5-reachability-write-backpressure`: optional timing stages.
+- `formal-cva5-reachability-stage STAGE=<name>`: run one full-core reachability cover, including individual AXI timing profiles such as `axi_ar_wait_1`.
 - `formal-list`, `formal-clean`: list Tcl targets; remove generated `runs/`.
 
 ## Proof boundary

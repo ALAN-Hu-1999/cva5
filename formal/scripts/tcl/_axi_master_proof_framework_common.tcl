@@ -1,4 +1,4 @@
-# Shared setup for the Jasper-native AXI master review framework.
+# Shared setup for the Jasper-native AXI master proof framework.
 
 clear -all
 
@@ -34,7 +34,7 @@ source [file join $CVA5_ROOT formal scripts tcl _proof_limits.tcl]
 set AXI_MASTER_FRAMEWORK_ANALYZE_ARGS {}
 if {[info exists env(AXI_WRITE_INCLUDE_UNDRIVEN_FIELDS)] &&
     $env(AXI_WRITE_INCLUDE_UNDRIVEN_FIELDS) eq "1"} {
-    puts "AXI_WRITE_INCLUDE_UNDRIVEN_FIELDS=1: compiling optional direct-boundary review properties."
+    puts "AXI_WRITE_INCLUDE_UNDRIVEN_FIELDS=1: compiling optional direct-boundary field checks."
     lappend AXI_MASTER_FRAMEWORK_ANALYZE_ARGS +define+AXI_WRITE_INCLUDE_UNDRIVEN_FIELD_CHECKS
 }
 

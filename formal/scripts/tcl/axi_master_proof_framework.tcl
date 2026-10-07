@@ -626,7 +626,7 @@ if {$FW_RUN_PROOFS eq "1"} {
             -include_instance [list $coverage_instance] -no_return
     }
 } else {
-    puts "JG_FRAMEWORK_RUN_PROOFS=$FW_RUN_PROOFS: setup-only review project; proof roots and Checker Coverage remain unrun."
+    puts "JG_FRAMEWORK_RUN_PROOFS=$FW_RUN_PROOFS: setup-only project; proof roots and Checker Coverage remain unrun."
 }
 
 check_cov -configure -checker_mode coi

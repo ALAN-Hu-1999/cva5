@@ -12,7 +12,7 @@ if {![info exists env(JG_PROPERTY)] || $env(JG_PROPERTY) eq ""} {
 }
 
 if {![string match "helper_*" $env(JG_PROPERTY)]} {
-    error "The checker target accepts only helper_* properties; use formal-axi-master-property for DUT properties."
+    error "The checker target accepts only helper_* properties; use formal-axi-master-read-property, formal-axi-master-write-property, or formal-axi-master-combined-property for DUT properties."
 }
 
 set PROPERTY_PATH ${AXI_CHECKER_PROPS}.$env(JG_PROPERTY)

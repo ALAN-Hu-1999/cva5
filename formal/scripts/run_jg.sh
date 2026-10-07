@@ -6,7 +6,7 @@ usage() {
 Usage: formal/scripts/run_jg.sh [options]
 
 Options:
-  --target NAME       Tcl target name under formal/scripts/tcl (default: axi_smoke)
+  --target NAME       Tcl target name under formal/scripts/tcl (required)
   --gui 0|1           Run interactive GUI style when 1; batch when 0 (default: 0)
   --run-name NAME     Use NAME for the run directory instead of a timestamp
   --no-filelist       Do not regenerate the RTL filelist before launching Jasper
@@ -17,7 +17,7 @@ USAGE
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd -- "${SCRIPT_DIR}/../.." && pwd)"
 
-TARGET="axi_smoke"
+TARGET=""
 GUI=0
 RUN_NAME=""
 UPDATE_FILELIST=1
@@ -52,6 +52,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+if [[ -z "${TARGET}" ]]; then
+    echo "error: --target is required" >&2
+    usage >&2
+    exit 2
+fi
+
 TCL_FILE="${REPO_ROOT}/formal/scripts/tcl/${TARGET}.tcl"
 if [[ ! -f "${TCL_FILE}" ]]; then
     echo "error: target Tcl not found: ${TCL_FILE}" >&2
@@ -65,7 +71,7 @@ if ! command -v jg >/dev/null 2>&1; then
 fi
 
 if [[ "${UPDATE_FILELIST}" -eq 1 ]]; then
-    "${REPO_ROOT}/formal/scripts/populate_cva5_rtl_vfile.sh"
+    bash "${REPO_ROOT}/formal/scripts/populate_cva5_rtl_vfile.sh"
 fi
 
 export CVA5_ROOT="${REPO_ROOT}"
